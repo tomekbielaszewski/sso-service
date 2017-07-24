@@ -7,16 +7,19 @@ import org.springframework.boot.autoconfigure.security.oauth2.resource.ResourceS
 import org.springframework.boot.autoconfigure.security.oauth2.resource.UserInfoTokenServices;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
+import org.springframework.security.authentication.event.AuthenticationSuccessEvent;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.oauth2.client.OAuth2ClientContext;
 import org.springframework.security.oauth2.client.OAuth2RestTemplate;
+import org.springframework.security.oauth2.client.filter.OAuth2AuthenticationFailureEvent;
 import org.springframework.security.oauth2.client.filter.OAuth2ClientAuthenticationProcessingFilter;
 import org.springframework.security.oauth2.client.filter.OAuth2ClientContextFilter;
 import org.springframework.security.oauth2.client.token.grant.code.AuthorizationCodeResourceDetails;
 import org.springframework.security.oauth2.config.annotation.web.configuration.EnableOAuth2Client;
-import org.springframework.security.oauth2.provider.OAuth2Authentication;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,7 +29,6 @@ import org.springframework.web.filter.CompositeFilter;
 import javax.servlet.Filter;
 import java.security.Principal;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 
 @SpringBootApplication
@@ -36,6 +38,9 @@ public class SsoApplication extends WebSecurityConfigurerAdapter {
 
     @Autowired
     private OAuth2ClientContext oauth2ClientContext;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @RequestMapping("/user")
     public Principal user(Principal principal) {
@@ -88,8 +93,18 @@ public class SsoApplication extends WebSecurityConfigurerAdapter {
         return registration;
     }
 
-    private Filter ssoFilter() {
+    @EventListener
+    public void handleOAuth2AuthenticationFailureEvent(OAuth2AuthenticationFailureEvent event) {
+        System.out.println(event.getAuthentication());
+        System.out.println(event.getException());
+    }
 
+    @EventListener
+    public void handleAuthenticationSuccessEvent(AuthenticationSuccessEvent event) {
+        System.out.println(event.getAuthentication());
+    }
+
+    private Filter ssoFilter() {
         CompositeFilter filter = new CompositeFilter();
         List<Filter> filters = new ArrayList<>();
 
@@ -99,10 +114,7 @@ public class SsoApplication extends WebSecurityConfigurerAdapter {
         UserInfoTokenServices tokenServices = new UserInfoTokenServices(facebookResource().getUserInfoUri(), facebook().getClientId());
         tokenServices.setRestTemplate(facebookTemplate);
         facebookFilter.setTokenServices(tokenServices);
-//    facebookFilter.setAuthenticationSuccessHandler((httpServletRequest, httpServletResponse, authentication) -> {
-//      LinkedHashMap details = (LinkedHashMap)((OAuth2Authentication) authentication).getUserAuthentication().getDetails();
-//      System.out.println(details);
-//    });
+        facebookFilter.setApplicationEventPublisher(eventPublisher);
         filters.add(facebookFilter);
 
         OAuth2ClientAuthenticationProcessingFilter githubFilter = new OAuth2ClientAuthenticationProcessingFilter("/login/github");
@@ -111,10 +123,7 @@ public class SsoApplication extends WebSecurityConfigurerAdapter {
         tokenServices = new UserInfoTokenServices(githubResource().getUserInfoUri(), github().getClientId());
         tokenServices.setRestTemplate(githubTemplate);
         githubFilter.setTokenServices(tokenServices);
-        githubFilter.setAuthenticationSuccessHandler((httpServletRequest, httpServletResponse, authentication) -> {
-            LinkedHashMap details = (LinkedHashMap) ((OAuth2Authentication) authentication).getUserAuthentication().getDetails();
-            System.out.println(details);
-        });
+        githubFilter.setApplicationEventPublisher(eventPublisher);
         filters.add(githubFilter);
 
         filter.setFilters(filters);
